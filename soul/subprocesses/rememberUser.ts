@@ -1,4 +1,4 @@
-import { MentalProcess, useSoulMemory, useActions, ChatMessageRoleEnum, indentNicely} from "@opensouls/engine";
+import { MentalProcess, useSoulMemory, useActions, ChatMessageRoleEnum, indentNicely, useSoulStore} from "@opensouls/engine";
 import { UserMemory, GlobalUserInteractions } from "../util/userMemories.js";
 import summarize from "../cognitiveSteps/summarize.js";
 import internalMonologue from "../cognitiveSteps/internalMonologue.js";
@@ -6,13 +6,15 @@ import conversationNotes from "../cognitiveSteps/conversationNotes.js";
 
 const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
   const { log } = useActions();
+  const { set, fetch, search } = useSoulStore()
   const globalInteractions = useSoulMemory<GlobalUserInteractions>("globalUserInteractions", {});
 
   //setting workingMemory here to only contain the core Evo.md prompt
   const coreMemory = workingMemory.withOnlyRegions("core")
 
   for (const [username, interactionCount] of Object.entries(globalInteractions.current)) {
-    if (interactionCount > 10) { // Process when interaction count is greater than 10
+    // Process when interaction count is greater than 10
+    if (interactionCount > 10) {
     log(`Processing user interactions for ${username}`)
       const userMemory = useSoulMemory<UserMemory>(username, {
         name: username,
@@ -24,61 +26,85 @@ const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
           description: "Neutral",
         },
         lastConversationSummary: `${username} & Evo just started talking for the first time`,
-        longTermMemories: [],
+        longTermMemories: "",
       });
 
-      // USER DATA HANDLING LOGIC STARTS HERE
+        // USER DATA HANDLING LOGIC STARTS HERE
 
-      //Format the recent chat logs into a string
-      const formattedChatLogs = userMemory.current.recentChatLogs
-      .map(log => {
-        const speaker = log.speaker === "user" ? username : "Evo";
-        return `${speaker} said: ${log.content}`;
-      })
-      .join("\n");
+        //Format the recent chat logs into a string
+        const formattedChatLogs = userMemory.current.recentChatLogs
+        .map(log => {
+          const speaker = log.speaker === "user" ? username : "Evo";
+          return `${speaker} said: ${log.content}`;
+        })
+        .join("\n");
 
-      //Formatting information about the user into memory
+      //Formatting all user memories into one variable
       const userInteractionSummary = indentNicely`
-      Information about ${userMemory.current.name}:
-      Last interaction: ${new Date(userMemory.current.lastInteraction).toLocaleString()}
-      Notes on user: ${userMemory.current.notes}
-      My feelings towards them: ${userMemory.current.feelings.description}
-      Last conversation summary: ${userMemory.current.lastConversationSummary}
-      Relevant long term memories: ${JSON.stringify(userMemory.current.longTermMemories, null, 2)}
-    `;
+        ## INFO ABOUT ${userMemory.current.name}:\n
+        - INTERACTION COUNT WITH ${userMemory.current.name}: ${userMemory.current.totalInteractions}\n
+        - LAST INTERACTION: ${new Date(userMemory.current.lastInteraction).toLocaleString()}\n
+        - NOTES: ${userMemory.current.notes}\n
+        - MY FEELINGS TOWARDS THEM: ${userMemory.current.feelings.description}\n
+        - LAST CONVO SUMMARY: ${userMemory.current.lastConversationSummary}\n
+      `;
 
-    // Adding the chat logs and previous saved memory to a new memory
-    const memoryWithChatlog = coreMemory
-    .withMemory({ role: ChatMessageRoleEnum.Assistant, content: `## RECENT CHAT LOGS BETWEEN EVO AND ${username}\n\n"${formattedChatLogs}"` })
-    .withMemory({ role: ChatMessageRoleEnum.Assistant, content: `## INFORMATION PREVIOUSLY REMEMBERED ABOUT ${username}\n\n"${userInteractionSummary}"` })
+      // Adding the chat logs and previous saved memory to a new memory
+      const memoryWithChatlog = coreMemory
+      .withMemory({ role: ChatMessageRoleEnum.Assistant, content: `## INFORMATION PREVIOUSLY REMEMBERED ABOUT ${username}\n\n"${userInteractionSummary}"` })
+      .withMemory({ role: ChatMessageRoleEnum.Assistant, content: `## RECENT CHAT LOGS BETWEEN EVO AND ${username}\n\n"${formattedChatLogs}"` })
 
-    //Summarize the short term chatlogs
-    const [, summary] = await summarize(
-        memoryWithChatlog,
-        `Summarize the following chatlogs between ${username} & Evo in a couple concise sentences. Keep ALL important details`,
-        { model: "exp/llama-v3-70b-instruct" }
-    );
+      //Summarizing notes only when the first batch are in and saving it to long term memory RAG
+      if(userMemory.current.totalInteractions > 11){
+        const [, longTermSummary] = await internalMonologue(
+          memoryWithChatlog,
+          { instructions: `Provide a 1-2 sentence snapshot of your current notes on ${username} based on the following information. Focus on key traits, interests, and the nature of your interactions. Be specific and factual. This is going in your long term memory.`, verb: "summarizes" },
+          { model: "fast" }
+        );
+      
+        log("User long-term memory updated:", longTermSummary)
 
-    log(`Summarized chatlogs with ${username}: `, summary)
+        const timestamp = Date.now();
+        const uniqueKey = `${username}-memory-${timestamp}`;
+      
+        set(uniqueKey, longTermSummary, {
+          username: username,
+          interactionCount: userMemory.current.totalInteractions,
+          lastInteraction: userMemory.current.lastInteraction,
+          notes: userMemory.current.notes,
+          feelings: userMemory.current.feelings.description,
+          lastConversationSummary: userMemory.current.lastConversationSummary,
+          timestamp: timestamp
+        });
+      }
+          
+      //Summarize the short term chatlogs
+      const [, summary] = await summarize(
+          memoryWithChatlog,
+          `Summarize the following chatlogs between ${username} & Evo in a couple concise sentences. Keep ALL important details`,
+          { model: "exp/llama-v3-70b-instruct" }
+      );
 
-    //Asking how Evo now feels about a user
-    const [, feelings] = await internalMonologue(
-        memoryWithChatlog,
-        { instructions: `In one sentence, how do you currently feel about the user? Why? !! Start your sentence with "I feel X towards ${username} because..."`, verb: "feels" },
-        { model: "exp/llama-v3-70b-instruct" }
-    );
+      log(`Summarized chatlogs with ${username}: `, summary)
 
-    log(`Evo's new feelings towards ${username}: `, feelings)
+      //Asking how Evo now feels about a user
+      const [, feelings] = await internalMonologue(
+          memoryWithChatlog,
+          { instructions: `In one sentence, how do you currently feel about the user? Why? !! Start your sentence with "I feel X towards ${username} because..."`, verb: "feels" },
+          { model: "exp/llama-v3-70b-instruct" }
+      );
 
-    //Evo taking notes on a user
-    const [, updatedNotes] = await conversationNotes(memoryWithChatlog, userMemory.current.notes, { model: "exp/llama-v3-70b-instruct" })
-    log(`Evo's new notes about ${username}`, updatedNotes)
+      log(`Evo's new feelings towards ${username}: `, feelings)
 
-    userMemory.current.lastConversationSummary = summary
-    userMemory.current.recentChatLogs = []
-    userMemory.current.feelings.description = feelings
-    userMemory.current.notes = updatedNotes
-    globalInteractions.current[username] = 0;
+      //Evo taking notes on a user
+      const [, updatedNotes] = await conversationNotes(memoryWithChatlog, userMemory.current.notes, { model: "exp/llama-v3-70b-instruct" })
+      log(`Evo's new notes about ${username}`, updatedNotes)
+
+      userMemory.current.lastConversationSummary = summary
+      userMemory.current.recentChatLogs = []
+      userMemory.current.feelings.description = feelings
+      userMemory.current.notes = updatedNotes
+      globalInteractions.current[username] = 0;
 
     }
   }

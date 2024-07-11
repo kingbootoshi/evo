@@ -1,15 +1,13 @@
-
-import { MentalProcess, useActions, ChatMessageRoleEnum, useSoulMemory, usePerceptions, indentNicely} from "@opensouls/engine";
+import { MentalProcess, useActions, ChatMessageRoleEnum, useSoulMemory, usePerceptions, indentNicely, useSoulStore} from "@opensouls/engine";
 import externalDialog from "./cognitiveSteps/externalDialog.js";
+import internalMonologue from "./cognitiveSteps/internalMonologue.js";
 import { ChatLog, UserMemory, GlobalUserInteractions, safeName } from "./util/userMemories.js";
 
 const core: MentalProcess = async ({ workingMemory }) => {
-  const { speak, log } = useActions()
-  const { invokingPerception, pendingPerceptions } = usePerceptions()
-
+  const { speak, log } = useActions();
+  const { set, fetch, search } = useSoulStore();
+  const { invokingPerception, pendingPerceptions } = usePerceptions();
   const userName = safeName(invokingPerception?.name ?? 'null');
-
-  // Global interaction tracker
   const globalInteractions = useSoulMemory<GlobalUserInteractions>("globalUserInteractions", {});
 
   // Increment interaction count for the current user
@@ -30,17 +28,40 @@ const core: MentalProcess = async ({ workingMemory }) => {
       description: "Neutral",
     },
     lastConversationSummary: `${userName} & Evo just started talking for the first time`,
-    longTermMemories: [],
+    longTermMemories: "",
   });
+
+  //Adding to the total interaction count
+  userMemory.current.totalInteractions += 1;
+  
+  // loading in long term memory vector search results for long term memory
+  let searched = await search(invokingPerception?.content ?? '', { minSimilarity: 0.6 });
+
+  // Extract top 3 results, format them, and log the formatted content. Saving it to userMemory so rememberUser.ts doesn't have to vector search again
+  const top3Results = searched.slice(0, 3).map(result => {
+    const timestamp = result.metadata?.timestamp as number;
+    if (timestamp) {
+      const date = new Date(timestamp);
+      const formattedDate = `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear().toString().substr(-2)}`;
+      return `${formattedDate} - ${result.content}`;
+    }
+    return `Unknown Date - ${result.content}`;
+  }).join('\n');
+  
+  log("Top 3 relevant long term memory results:\n", top3Results);
+
+  userMemory.current.longTermMemories = top3Results
 
   //Formatting all user memories into one variable
   const userInteractionSummary = indentNicely`
     ## INFO ABOUT ${userMemory.current.name}:\n
-    ### LAST INTERACTION: ${new Date(userMemory.current.lastInteraction).toLocaleString()}\n
-    ### NOTES: ${userMemory.current.notes}\n
-    ### MY FEELINGS TOWARDS THEM: ${userMemory.current.feelings.description}\n
-    ### LAST CONVO SUMMARY: ${userMemory.current.lastConversationSummary}\n
-    ### RELEVANT LONG TERM MEMORIES: ${JSON.stringify(userMemory.current.longTermMemories, null, 2)}\n
+    - INTERACTION COUNT WITH ${userMemory.current.name}: ${userMemory.current.totalInteractions}\n
+    - LAST INTERACTION: ${new Date(userMemory.current.lastInteraction).toLocaleString([], { year: '2-digit', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ' -')}\n
+    - NOTES: ${userMemory.current.notes}\n
+    - MY CURRENT FEELINGS TOWARDS THEM: ${userMemory.current.feelings.description}\n
+    - LAST CONVO SUMMARY: ${userMemory.current.lastConversationSummary}\n
+    - RELEVANT LONG TERM MEMORIES:
+    ${top3Results}
   `;
 
   //Creating a memory variable for organization
@@ -51,10 +72,10 @@ const core: MentalProcess = async ({ workingMemory }) => {
         ${userInteractionSummary}
       `
     }
-  )
+  );
 
   //Adding the unique user memory to the workingMemory
-  workingMemory = workingMemory.withRegion("userMemory", userMemories()).withRegionalOrder("core", "userMemory", "summary", "chat", "default")
+  workingMemory = workingMemory.withRegion("userMemory", userMemories()).withRegionalOrder("core", "userMemory", "summary", "chat", "default");
 
   //Pushing new user message to the unique chatlog history
   const newUserChat: ChatLog = {
@@ -66,9 +87,19 @@ const core: MentalProcess = async ({ workingMemory }) => {
   userMemory.current.recentChatLogs.push(newUserChat);
 
   //Handle AI response to user message
-  const [withDialog, stream, resp] = await externalDialog(
+
+  //THINK LOGIC
+  const [withThoughts, thought] = await internalMonologue(
     workingMemory,
-    "Talk to the user",
+    { instructions: "Formulate a thought before speaking", verb: "thinks" },
+    { model: "fast" }
+  );
+
+  log("Evo thinks...", thought);
+
+  const [withDialog, stream, resp] = await externalDialog(
+    withThoughts,
+    "Based on your previous thought, talk to the user",
     { stream: true, model: "gpt-4o" }
   );
 
@@ -82,11 +113,12 @@ const core: MentalProcess = async ({ workingMemory }) => {
   };
 
   userMemory.current.recentChatLogs.push(newAIChat);
+  userMemory.current.lastInteraction = Date.now();
   
   //Grabs the current chat region from working memory and and adds on top of it
-  const chatMemories = workingMemory.withOnlyRegions("chat").withMemory({ role: ChatMessageRoleEnum.Assistant, content: await resp })
+  const chatMemories = workingMemory.withOnlyRegions("chat").withMemory({ role: ChatMessageRoleEnum.Assistant, content: await resp });
 
-  return workingMemory.withRegion("chat", ...chatMemories.memories)
+  return workingMemory.withRegion("chat", ...chatMemories.memories);
 }
 
 export default core

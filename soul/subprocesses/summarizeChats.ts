@@ -14,6 +14,16 @@ export const summaryMemory = (content: string) => (
   }
 )
 
+export const lastConvo = (content: string) => (
+  {
+    role: ChatMessageRoleEnum.Assistant,
+    content: indentNicely`
+      ## LAST CONVO BIT
+      ${content}
+    `
+  }
+)
+
 const conversationNotes = createCognitiveStep((existing: string) => {
   return {
     command: ({ soulName: name }: WorkingMemory) => {
@@ -32,8 +42,9 @@ const conversationNotes = createCognitiveStep((existing: string) => {
           * Keep relevant information from before
           * Use abbreviated language to keep the notes short
           * Be specific with user names and context
+          * Make sure to include important context that keeps the previous conversation flowing.
 
-          Please reply with the updated notes on the conversation:
+          Please reply with ONLY raw, updated notes on the conversation:
         `,
       }
     },
@@ -91,20 +102,24 @@ const summarizesConversation: MentalProcess = async ({ workingMemory }) => {
 
   if (memory.memories.length > 11) {
     log("updating conversation notes");
-    [memory] = await internalMonologue(memory, { instructions: "What have I learned in this conversation.", verb: "noted" })
+    [memory, ] = await internalMonologue(memory, { instructions: "What have I learned in this conversation.", verb: "noted" }, {model: "fast"})
 
-    const [, updatedNotes] = await conversationNotes(memory, conversationModel.current)
+    const [, updatedNotes] = await conversationNotes(memory, conversationModel.current,  {model: "exp/llama-v3-70b-instruct"})
 
     conversationModel.current = updatedNotes as string
 
+    // Get the 4th to last, 3rd to last, and 2nd to last memories, to keep the convo going after summary.
+    const relevantMemories = memory.memories.slice(-4, -1);
+
+    // Combine the three memories into one formatted string
+    const combinedContent = relevantMemories.map(mem => mem.content).join('\n\n');
+
     return workingMemory
       .withRegion(
-        "summary",
+        "summary", 
         summaryMemory(conversationModel.current)
       )
-      .withRegion("chat")
-      .withoutRegions('default')
-      .concat(workingMemory.withOnlyRegions('default').slice(-4))
+      .withRegion("chat", lastConvo(combinedContent))
   }
 
   return workingMemory
