@@ -34,8 +34,12 @@ const core: MentalProcess = async ({ workingMemory }) => {
   //Adding to the total interaction count
   userMemory.current.totalInteractions += 1;
   
-  // loading in long term memory vector search results for long term memory
-  let searched = await search(invokingPerception?.content ?? '', { minSimilarity: 0.6 });
+  // Loading in long term memory vector search results for long term memory
+  let searched = await search(invokingPerception?.content ?? '', { 
+    minSimilarity: 0.6,
+    filter: { username: userName }
+  });
+  log("search", searched)
 
   // Extract top 3 results, format them, and log the formatted content. Saving it to userMemory so rememberUser.ts doesn't have to vector search again
   const top3Results = searched.slice(0, 3).map(result => {
