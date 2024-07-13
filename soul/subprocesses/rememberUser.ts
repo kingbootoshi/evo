@@ -2,7 +2,7 @@ import { MentalProcess, useSoulMemory, useActions, ChatMessageRoleEnum, indentNi
 import { UserMemory, GlobalUserInteractions } from "../util/userMemories.js";
 import summarize from "../cognitiveSteps/summarize.js";
 import internalMonologue from "../cognitiveSteps/internalMonologue.js";
-import conversationNotes from "../cognitiveSteps/conversationNotes.js";
+import userNotes from "../cognitiveSteps/userNotes.js";
 
 const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
   const { log } = useActions();
@@ -74,6 +74,7 @@ const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
           notes: userMemory.current.notes,
           feelings: userMemory.current.feelings.description,
           lastConversationSummary: userMemory.current.lastConversationSummary,
+          rawChatLogs: formattedChatLogs,
           timestamp: timestamp
         });
       }
@@ -97,7 +98,7 @@ const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
       log(`Evo's new feelings towards ${username}: `, feelings)
 
       //Evo taking notes on a user
-      const [, updatedNotes] = await conversationNotes(memoryWithChatlog, userMemory.current.notes, { model: "exp/llama-v3-70b-instruct" })
+      const [, updatedNotes] = await userNotes(memoryWithChatlog, userMemory.current.notes, { model: "exp/llama-v3-70b-instruct" })
       log(`Evo's new notes about ${username}`, updatedNotes)
 
       userMemory.current.lastConversationSummary = summary

@@ -20,7 +20,7 @@ const externalDialog = createCognitiveStep((instructions: string | { instruction
             ## Instructions
             ${instructionString}
     
-            Please reply with what ${name} would like to say. Keep dialog concise.
+            Please reply with what ${name} would like to say.
           `
       };
     },

@@ -1,9 +1,12 @@
-import { ChatMessageRoleEnum, MentalProcess, WorkingMemory, createCognitiveStep, indentNicely, stripEntityAndVerb, stripEntityAndVerbFromStream, useActions, useSoulMemory } from "@opensouls/engine";
+import { ChatMessageRoleEnum, MentalProcess, WorkingMemory, useSoulStore, indentNicely, stripEntityAndVerb, stripEntityAndVerbFromStream, useActions, useSoulMemory } from "@opensouls/engine";
+import internalMonologue from "../cognitiveSteps/internalMonologue.js";
+import conversationNotes from "../cognitiveSteps/conversationNotes.js";
 
+// Initializing new convo summary
 export const INITIAL_CONVERSATION_SUMMARY = indentNicely`
-  Your initial conversation.
+  Talking to users for the first time
 `
-
+//Setting a memory template for summary region
 export const summaryMemory = (content: string) => (
   {
     role: ChatMessageRoleEnum.Assistant,
@@ -14,6 +17,7 @@ export const summaryMemory = (content: string) => (
   }
 )
 
+//Setting a memory template for the last 3 conversations post summary to keep flow
 export const lastConvo = (content: string) => (
   {
     role: ChatMessageRoleEnum.Assistant,
@@ -24,89 +28,62 @@ export const lastConvo = (content: string) => (
   }
 )
 
-const conversationNotes = createCognitiveStep((existing: string) => {
-  return {
-    command: ({ soulName: name }: WorkingMemory) => {
-      return {
-        role: ChatMessageRoleEnum.System,
-        content: indentNicely`
-          ## Existing notes
-          ${existing}
-
-          ## Description
-          Write an updated and clear paragraph describing the conversation so far.
-          Make sure to keep details that ${name} would want to remember.
-
-          ## Rules
-          * Keep descriptions as a paragraph
-          * Keep relevant information from before
-          * Use abbreviated language to keep the notes short
-          * Be specific with user names and context
-          * Make sure to include important context that keeps the previous conversation flowing.
-
-          Please reply with ONLY raw, updated notes on the conversation:
-        `,
-      }
-    },
-  }
-})
-
-const internalMonologue = createCognitiveStep((instructions: string | { instructions: string; verb: string }) => {
-  let instructionString: string, verb: string;
-  if (typeof instructions === "string") {
-    instructionString = instructions;
-    verb = "thought";
-  } else {
-    instructionString = instructions.instructions;
-    verb = instructions.verb;
-  }
-
-  return {
-    command: ({ soulName: name }: WorkingMemory) => {
-      return {
-        role: ChatMessageRoleEnum.System,
-        name: name,
-        content: indentNicely`
-          Model the mind of ${name}.
-
-          ## Description
-          ${instructionString}
-
-          ## Rules
-          * Internal monologue thoughts should match the speaking style of ${name}.
-          * Only respond with the format '${name} ${verb}: "..."', no additional commentary or text.
-          * Follow the Description when creating the internal thought!
-
-          Please reply with the next internal monologue thought of ${name}. Use the format: '${name} ${verb}: "..."'
-        `
-      };
-    },
-    streamProcessor: stripEntityAndVerbFromStream,
-    postProcess: async (memory: WorkingMemory, response: string) => {
-      const stripped = stripEntityAndVerb(memory.soulName, verb, response);
-      const newMemory = {
-        role: ChatMessageRoleEnum.Assistant,
-        content: `${memory.soulName} ${verb}: "${stripped}"`
-      };
-      return [newMemory, stripped];
-    }
-  }
-})
-
 const summarizesConversation: MentalProcess = async ({ workingMemory }) => {
   const conversationModel = useSoulMemory("conversationSummary", INITIAL_CONVERSATION_SUMMARY)
 
   const { log } = useActions()
+  const { set, fetch, search } = useSoulStore()
 
   let memory = workingMemory.withOnlyRegions("core", "summary", "chat")
 
-  if (memory.memories.length > 11) {
+  if (memory.memories.length > 13) {
     log("updating conversation notes");
     [memory, ] = await internalMonologue(memory, { instructions: "What have I learned in this conversation.", verb: "noted" }, {model: "fast"})
 
     const [, updatedNotes] = await conversationNotes(memory, conversationModel.current,  {model: "exp/llama-v3-70b-instruct"})
 
+    log("Updated chat summary!", updatedNotes)
+
     conversationModel.current = updatedNotes as string
+
+    // New code: Check if conversationModel.current exceeds 1000 characters
+    if (conversationModel.current.length > 1000) {
+      log("Current chat summary too long, summarizing...")
+
+      // Store the previous full summary
+      const previousFullSummary = conversationModel.current;
+
+      // Concise summary
+      const [, conciseSummary] = await internalMonologue(
+        memory,
+        { 
+          instructions: "Provide a 2-4 sentence concise summary of the CURRENT CONVERSATION DETAILS. Focus on key topics discussed, important decisions made, and any significant changes or developments in your interactions. Ensure to capture the essence of your conversatiosn and any notable shifts in any relationships or capabilities.",
+          verb: "summarizes"
+        },
+        { model: "fast" }
+      );
+
+      log("Previous conversation summary summarized:", conciseSummary);
+
+      // Update conversationModel.current with the concise summary
+      conversationModel.current = conciseSummary as string;
+
+      // Save to long-term memory
+      const timestamp = Date.now();
+      const uniqueKey = `generalChat_${timestamp}`;
+
+      // Get raw chat memories
+      const rawChatMemories = workingMemory.withOnlyRegions("chat").memories;
+
+      set(uniqueKey, conciseSummary, {
+        generalChat: true,
+        fullSummary: previousFullSummary,
+        rawChatLogs: rawChatMemories.map(mem => mem.content).join('\n'),
+        timestamp: timestamp
+      });
+
+      log("Long-term general chat memory saved!");
+    }
 
     // Get the 4th to last, 3rd to last, and 2nd to last memories, to keep the convo going after summary.
     const relevantMemories = memory.memories.slice(-4, -1);

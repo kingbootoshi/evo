@@ -6,6 +6,9 @@ import { ChatLog, UserMemory, GlobalUserInteractions, safeName } from "./util/us
 const core: MentalProcess = async ({ workingMemory }) => {
   const { speak, log } = useActions();
   const { set, fetch, search } = useSoulStore();
+  const scratchPadCount = useSoulMemory("scratchPadCount", 5)
+  const currentScratchPadNotes = useSoulMemory("currentScratchPadNotes", "...")
+  const lastThought = useSoulMemory("lastThought", "...")
   const { invokingPerception, pendingPerceptions } = usePerceptions();
   const userName = safeName(invokingPerception?.name ?? 'null');
   const globalInteractions = useSoulMemory<GlobalUserInteractions>("globalUserInteractions", {});
@@ -39,7 +42,6 @@ const core: MentalProcess = async ({ workingMemory }) => {
     minSimilarity: 0.6,
     filter: { username: userName }
   });
-  log("search", searched)
 
   // Extract top 3 results, format them, and log the formatted content. Saving it to userMemory so rememberUser.ts doesn't have to vector search again
   const top3Results = searched.slice(0, 3).map(result => {
@@ -51,14 +53,12 @@ const core: MentalProcess = async ({ workingMemory }) => {
     }
     return `Unknown Date - ${result.content}`;
   }).join('\n');
-  
-  log("Top 3 relevant long term memory results:\n", top3Results);
 
+  //Set current user memory to the vector result
   userMemory.current.longTermMemories = top3Results
 
   //Formatting all user memories into one variable
   const userInteractionSummary = indentNicely`
-    ## INFO ABOUT ${userMemory.current.name}:\n
     - INTERACTION COUNT WITH ${userMemory.current.name}: ${userMemory.current.totalInteractions}\n
     - LAST INTERACTION: ${new Date(userMemory.current.lastInteraction).toLocaleString([], { year: '2-digit', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ' -')}\n
     - NOTES: ${userMemory.current.notes}\n
@@ -68,18 +68,29 @@ const core: MentalProcess = async ({ workingMemory }) => {
     ${top3Results}
   `;
 
-  //Creating a memory variable for organization
-  const userMemories = () => (
-    {
-      role: ChatMessageRoleEnum.Assistant,
-      content: indentNicely`
-        ${userInteractionSummary}
-      `
-    }
-  );
+  // Creating a memory variable for user information
+  const userMemories = {
+    role: ChatMessageRoleEnum.Assistant,
+    content: indentNicely`
+      ## INFO ABOUT ${userMemory.current.name}
+      ${userInteractionSummary}
+    `
+  };
 
-  //Adding the unique user memory to the workingMemory
-  workingMemory = workingMemory.withRegion("userMemory", userMemories()).withRegionalOrder("core", "userMemory", "summary", "chat", "default");
+  // Create a new memory for the scratchpad
+  const scratchpadMemory = {
+    role: ChatMessageRoleEnum.Assistant,
+    content: indentNicely`
+      ## SCRATCHPAD NOTES (Updates in ${5 - scratchPadCount.current} turns)
+      ${currentScratchPadNotes.current}
+
+      ## Evo's previous thought:
+      ${lastThought.current}
+    `
+  };
+
+  //Adding the unique user memories to the workingMemory
+  workingMemory = workingMemory.withRegion("userMemory", userMemories).withRegion("scratchpad", scratchpadMemory).withRegionalOrder("core", "scratchpad", "userMemory", "summary", "chat", "default");
 
   //Pushing new user message to the unique chatlog history
   const newUserChat: ChatLog = {
@@ -96,31 +107,32 @@ const core: MentalProcess = async ({ workingMemory }) => {
   const [withThoughts, thought] = await internalMonologue(
     workingMemory,
     { instructions: "Formulate a thought before speaking", verb: "thinks" },
-    { model: "fast" }
+    { model: "exp/llama-v3-70b-instruct", temperature: 0.9 }
   );
 
   log("Evo thinks...", thought);
+  lastThought.current = thought
 
-  const [withDialog, stream, resp] = await externalDialog(
+  const [withDialog, stream] = await externalDialog(
     withThoughts,
-    "Based on your previous thought, talk to the user",
-    { stream: true, model: "gpt-4o" }
+    "Based on your previous thought, speak outloud",
+    { model: "exp/llama-v3-70b-instruct", temperature: 0.9 }
   );
 
-  speak(stream);
+  speak(stream.replace(/^Evo said: "(.*)"$/, '$1').replace(/^"/, '').replace(/"$/, ''));
 
   //Pushing the AI's response to the unique chatlog history
   const newAIChat: ChatLog = {
     timestamp: Date.now(),
     speaker: "ai",
-    content: (await resp).replace(/^Evo said: "(.*)"$/, '$1')
+    content: (stream).replace(/^Evo said: "(.*)"$/, '$1')
   };
 
   userMemory.current.recentChatLogs.push(newAIChat);
   userMemory.current.lastInteraction = Date.now();
   
   //Grabs the current chat region from working memory and and adds on top of it
-  const chatMemories = workingMemory.withOnlyRegions("chat").withMemory({ role: ChatMessageRoleEnum.Assistant, content: await resp });
+  const chatMemories = workingMemory.withOnlyRegions("chat").withMemory({ role: ChatMessageRoleEnum.Assistant, content: stream });
 
   return workingMemory.withRegion("chat", ...chatMemories.memories);
 }
