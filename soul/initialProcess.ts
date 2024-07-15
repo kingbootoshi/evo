@@ -103,10 +103,19 @@ const core: MentalProcess = async ({ workingMemory }) => {
 
   //Handle AI response to user message
 
+  //FEELS LOGIC
+  const [withFeels, feels] = await internalMonologue(
+    workingMemory,
+    { instructions: "In one word, describe intuitively how this response makes you feel", verb: "feels" },
+    { model: "exp/llama-v3-70b-instruct", temperature: 0.9 }
+  );
+
+  log("Evo feels...", feels)
+
   //THINK LOGIC
   const [withThoughts, thought] = await internalMonologue(
     workingMemory,
-    { instructions: "Formulate a thought before speaking", verb: "thinks" },
+    { instructions: `Evo feels ${feels}. Now, formulate a thought before speaking`, verb: "thinks" },
     { model: "exp/llama-v3-70b-instruct", temperature: 0.9 }
   );
 
@@ -114,8 +123,8 @@ const core: MentalProcess = async ({ workingMemory }) => {
   lastThought.current = thought
 
   const [withDialog, stream] = await externalDialog(
-    withThoughts,
-    "Based on your previous thought, speak outloud",
+    workingMemory,
+    `I feel ${feels} and I just thought: "${thought}". Based on this feeling and thought, I will now speak outloud`,
     { model: "exp/llama-v3-70b-instruct", temperature: 0.9 }
   );
 

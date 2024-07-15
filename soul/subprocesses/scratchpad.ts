@@ -21,8 +21,7 @@ const scratchpadNotes = createCognitiveStep((existing: string) => {
 
         Keep them short and concise!
 
-        PREVIOUS SCRATCHPAD NOTES:
-        ${existing}
+        Make sure to re-write notes you wish to keep. This updates every 5 chat interactions.
         `,
       }
     },
@@ -39,7 +38,7 @@ const scratchpad: MentalProcess = async ({ workingMemory }) => {
     if (scratchPadCount.current > 5){
         scratchPadCount.current = 0
         log("updating scratchpad...");
-        const [, updatedNotes] = await scratchpadNotes(workingMemory, currentScratchPadNotes.current, {model: "exp/llama-v3-70b-instruct", temperature: 0.9, })
+        const [, updatedNotes] = await scratchpadNotes(workingMemory, "", {model: "exp/llama-v3-70b-instruct", temperature: 0.9, })
         log("Evo updates scratchpad: ", updatedNotes);
         currentScratchPadNotes.current = updatedNotes
     }
