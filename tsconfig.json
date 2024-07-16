@@ -12,6 +12,6 @@
     "resolveJsonModule": true,
     "moduleResolution": "Node16",
   },
-  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "soul/**/*"],
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*", "soul/**/*", "scratchpad.ts", "scratchpad.ts"],
   "exclude": ["node_modules"]
 }

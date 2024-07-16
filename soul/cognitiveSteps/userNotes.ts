@@ -4,7 +4,7 @@ import { createCognitiveStep, WorkingMemory, ChatMessageRoleEnum, indentNicely }
  * Used by the summarizeAndCompress subprocess to summarize a conversation, and then compress it down
  * to a smaller amount of WorkingMemory memories. 
  */
-const conversationNotes = createCognitiveStep((existing: string) => {
+const userNotes = createCognitiveStep((existing: string) => {
   return {
     command: ({ soulName: name }: WorkingMemory) => {
       return {
@@ -30,4 +30,4 @@ const conversationNotes = createCognitiveStep((existing: string) => {
   }
 })
 
-export default conversationNotes
+export default userNotes

@@ -9,9 +9,12 @@ const core: MentalProcess = async ({ workingMemory }) => {
   const scratchPadCount = useSoulMemory("scratchPadCount", 5)
   const currentScratchPadNotes = useSoulMemory("currentScratchPadNotes", "...")
   const lastThought = useSoulMemory("lastThought", "...")
+  const lastFeeling = useSoulMemory("lastFeeling", "...")
   const { invokingPerception, pendingPerceptions } = usePerceptions();
   const userName = safeName(invokingPerception?.name ?? 'null');
   const globalInteractions = useSoulMemory<GlobalUserInteractions>("globalUserInteractions", {});
+  const taskListCount = useSoulMemory("taskListCount", 4)
+  const taskList = useSoulMemory("taskList", [] as string[]);
 
   // Increment interaction count for the current user
   if (userName !== 'null') {
@@ -37,14 +40,27 @@ const core: MentalProcess = async ({ workingMemory }) => {
   //Adding to the total interaction count
   userMemory.current.totalInteractions += 1;
   
-  // Loading in long term memory vector search results for long term memory
-  let searched = await search(invokingPerception?.content ?? '', { 
+  // User-specific memory search
+  let userSearched = await search(invokingPerception?.content ?? '', { 
     minSimilarity: 0.6,
     filter: { username: userName }
   });
 
-  // Extract top 3 results, format them, and log the formatted content. Saving it to userMemory so rememberUser.ts doesn't have to vector search again
-  const top3Results = searched.slice(0, 3).map(result => {
+  // General memory search
+  let generalSearched = await search(invokingPerception?.content ?? '', { 
+    minSimilarity: 0.6
+  });
+  // Extract and format top 3 results for user-specific memories
+  const top3UserResults = userSearched.slice(0, 3).map(formatSearchResult).join('\n');
+
+  // Extract and format top 3 results for general memories
+  const top3GeneralResults = generalSearched.slice(0, 2).map(formatSearchResult).join('\n');
+
+  // Set current user memory to the user-specific vector result
+  userMemory.current.longTermMemories = top3UserResults;
+
+  // Helper function to format search results
+  function formatSearchResult(result: any) {
     const timestamp = result.metadata?.timestamp as number;
     if (timestamp) {
       const date = new Date(timestamp);
@@ -52,10 +68,7 @@ const core: MentalProcess = async ({ workingMemory }) => {
       return `${formattedDate} - ${result.content}`;
     }
     return `Unknown Date - ${result.content}`;
-  }).join('\n');
-
-  //Set current user memory to the vector result
-  userMemory.current.longTermMemories = top3Results
+  }
 
   //Formatting all user memories into one variable
   const userInteractionSummary = indentNicely`
@@ -65,7 +78,7 @@ const core: MentalProcess = async ({ workingMemory }) => {
     - MY CURRENT FEELINGS TOWARDS THEM: ${userMemory.current.feelings.description}\n
     - LAST CONVO SUMMARY: ${userMemory.current.lastConversationSummary}\n
     - RELEVANT LONG TERM MEMORIES:
-    ${top3Results}
+    ${top3UserResults}
   `;
 
   // Creating a memory variable for user information
@@ -74,23 +87,30 @@ const core: MentalProcess = async ({ workingMemory }) => {
     content: indentNicely`
       ## INFO ABOUT ${userMemory.current.name}
       ${userInteractionSummary}
+
+      ## RELEVANT GENERAL MEMORIES
+      ${top3GeneralResults}
     `
   };
 
-  // Create a new memory for the scratchpad
+  // Create a new memory for the tasklist
   const scratchpadMemory = {
     role: ChatMessageRoleEnum.Assistant,
     content: indentNicely`
-      ## SCRATCHPAD NOTES (Updates in ${5 - scratchPadCount.current} turns)
-      ${currentScratchPadNotes.current}
+      ## Evo's previous feeling:
+      ${lastFeeling.current}
 
       ## Evo's previous thought:
       ${lastThought.current}
+    
+      ## IMPORTANT: TASKLIST (Updates in ${5 - taskListCount.current} turns)\n
+      Make sure to complete these tasks!
+      ${taskList.current.map((task, index) => `Task ${index + 1} - ${task}`).join('\n')}
     `
   };
 
   //Adding the unique user memories to the workingMemory
-  workingMemory = workingMemory.withRegion("userMemory", userMemories).withRegion("scratchpad", scratchpadMemory).withRegionalOrder("core", "scratchpad", "userMemory", "summary", "chat", "default");
+  workingMemory = workingMemory.withRegion("userMemory", userMemories).withRegion("scratchpad", scratchpadMemory).withRegionalOrder("core", "userMemory", "summary", "chat", "scratchpad", "default");
 
   //Pushing new user message to the unique chatlog history
   const newUserChat: ChatLog = {
@@ -106,11 +126,12 @@ const core: MentalProcess = async ({ workingMemory }) => {
   //FEELS LOGIC
   const [withFeels, feels] = await internalMonologue(
     workingMemory,
-    { instructions: "In one word, describe intuitively how this response makes you feel", verb: "feels" },
-    { model: "exp/llama-v3-70b-instruct", temperature: 0.9 }
+    { instructions: "In only !!ONE!! word, describe intuitively how this response makes Evo feel. ", verb: "feels" },
+    { model: "exp/llama-v3-70b-instruct", temperature: 0.8 }
   );
 
   log("Evo feels...", feels)
+  lastFeeling.current = feels
 
   //THINK LOGIC
   const [withThoughts, thought] = await internalMonologue(
@@ -124,8 +145,8 @@ const core: MentalProcess = async ({ workingMemory }) => {
 
   const [withDialog, stream] = await externalDialog(
     workingMemory,
-    `I feel ${feels} and I just thought: "${thought}". Based on this feeling and thought, I will now speak outloud`,
-    { model: "exp/llama-v3-70b-instruct", temperature: 0.9 }
+    `Evo feels ${feels} and thinks: "${thought}". Based on this feeling and thought, Evo will now speak outloud`,
+    { model: "gpt-4o", temperature: 0.9 }
   );
 
   speak(stream.replace(/^Evo said: "(.*)"$/, '$1').replace(/^"/, '').replace(/"$/, ''));

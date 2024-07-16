@@ -14,7 +14,7 @@ export interface UserMemory {
       description: string;
     };
     lastConversationSummary: string;
-    longTermMemories: string[]; // This will store RAG-retrievable summaries
+    longTermMemories: string; // This will store RAG-retrievable summaries
   }
 
 export interface GlobalUserInteractions {

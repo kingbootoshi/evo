@@ -65,7 +65,7 @@ const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
         log("User long-term memory updated:", longTermSummary)
 
         const timestamp = Date.now();
-        const uniqueKey = `${username}-memory-${timestamp}`;
+        const uniqueKey = `${username}-memory-${userMemory.current.totalInteractions}`;
       
         set(uniqueKey, longTermSummary, {
           username: username,
@@ -91,14 +91,14 @@ const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
       //Asking how Evo now feels about a user
       const [, feelings] = await internalMonologue(
           memoryWithChatlog,
-          { instructions: `In one sentence, how do you currently feel about the user? Why? !! Start your sentence with "I feel X towards ${username} because..."`, verb: "feels" },
+          { instructions: `In one sentence, how do you currently feel about ${username}? Why? !! Start your sentence with "I feel X towards ${username} because..."`, verb: "feels" },
           { model: "exp/llama-v3-70b-instruct" }
       );
 
       log(`Evo's new feelings towards ${username}: `, feelings)
 
       //Evo taking notes on a user
-      const [, updatedNotes] = await userNotes(memoryWithChatlog, userMemory.current.notes, { model: "exp/llama-v3-70b-instruct" })
+      const [, updatedNotes] = await userNotes(memoryWithChatlog, `${userMemory.current.notes}\n\nThe user is ${username}`, { model: "exp/llama-v3-70b-instruct" })
       log(`Evo's new notes about ${username}`, updatedNotes)
 
       userMemory.current.lastConversationSummary = summary

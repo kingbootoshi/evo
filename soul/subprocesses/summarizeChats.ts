@@ -7,10 +7,13 @@ export const INITIAL_CONVERSATION_SUMMARY = indentNicely`
   Talking to users for the first time
 `
 //Setting a memory template for summary region
-export const summaryMemory = (content: string) => (
+export const summaryMemory = (content: string, lastSum: string) => (
   {
     role: ChatMessageRoleEnum.Assistant,
     content: indentNicely`
+      ## LAST SUMMARY DETAILS
+      ${lastSum}
+
       ## CURRENT CONVERSATION DETAILS
       ${content}
     `
@@ -22,14 +25,16 @@ export const lastConvo = (content: string) => (
   {
     role: ChatMessageRoleEnum.Assistant,
     content: indentNicely`
-      ## LAST CONVO BIT
+      ## RECENT CHAT LOGS
       ${content}
     `
   }
 )
 
 const summarizesConversation: MentalProcess = async ({ workingMemory }) => {
-  const conversationModel = useSoulMemory("conversationSummary", INITIAL_CONVERSATION_SUMMARY)
+  const currentSummary = useSoulMemory("conversationSummary", INITIAL_CONVERSATION_SUMMARY)
+  const lastSummary = useSoulMemory("lastSummary", "...")
+  const chatCountRAG = useSoulMemory("chatCountRAG", 0)
 
   const { log } = useActions()
   const { set, fetch, search } = useSoulStore()
@@ -40,50 +45,29 @@ const summarizesConversation: MentalProcess = async ({ workingMemory }) => {
     log("updating conversation notes");
     [memory, ] = await internalMonologue(memory, { instructions: "What have I learned in this conversation.", verb: "noted" }, {model: "fast"})
 
-    const [, updatedNotes] = await conversationNotes(memory, conversationModel.current,  {model: "exp/llama-v3-70b-instruct"})
+    const [, summary] = await conversationNotes(memory, currentSummary.current,  {model: "exp/llama-v3-70b-instruct"})
 
-    log("Updated chat summary!", updatedNotes)
+    log("New chat summary!", summary)
 
-    conversationModel.current = updatedNotes as string
+    lastSummary.current = currentSummary.current
 
-    // New code: Check if conversationModel.current exceeds 1000 characters
-    if (conversationModel.current.length > 1000) {
-      log("Current chat summary too long, summarizing...")
+    currentSummary.current = summary as string
 
-      // Store the previous full summary
-      const previousFullSummary = conversationModel.current;
+    // Save to long-term memory
+    const timestamp = Date.now();
+    chatCountRAG.current += 1;
+    const uniqueKey = `generalChat_${chatCountRAG.current}`;
 
-      // Concise summary
-      const [, conciseSummary] = await internalMonologue(
-        memory,
-        { 
-          instructions: "Provide a 2-4 sentence concise summary of the CURRENT CONVERSATION DETAILS. Focus on key topics discussed, important decisions made, and any significant changes or developments in your interactions. Ensure to capture the essence of your conversatiosn and any notable shifts in any relationships or capabilities.",
-          verb: "summarizes"
-        },
-        { model: "fast" }
-      );
+    // Get raw chat memories
+    const rawChatMemories = workingMemory.withOnlyRegions("chat").memories;
 
-      log("Previous conversation summary summarized:", conciseSummary);
+    set(uniqueKey, summary, {
+      generalChat: true,
+      rawChatLogs: rawChatMemories.map(mem => mem.content).join('\n'),
+      timestamp: timestamp
+    });
 
-      // Update conversationModel.current with the concise summary
-      conversationModel.current = conciseSummary as string;
-
-      // Save to long-term memory
-      const timestamp = Date.now();
-      const uniqueKey = `generalChat_${timestamp}`;
-
-      // Get raw chat memories
-      const rawChatMemories = workingMemory.withOnlyRegions("chat").memories;
-
-      set(uniqueKey, conciseSummary, {
-        generalChat: true,
-        fullSummary: previousFullSummary,
-        rawChatLogs: rawChatMemories.map(mem => mem.content).join('\n'),
-        timestamp: timestamp
-      });
-
-      log("Long-term general chat memory saved!");
-    }
+    log("Long-term general chat memory saved!");
 
     // Get the 4th to last, 3rd to last, and 2nd to last memories, to keep the convo going after summary.
     const relevantMemories = memory.memories.slice(-4, -1);
@@ -94,7 +78,7 @@ const summarizesConversation: MentalProcess = async ({ workingMemory }) => {
     return workingMemory
       .withRegion(
         "summary", 
-        summaryMemory(conversationModel.current)
+        summaryMemory(currentSummary.current, lastSummary.current)
       )
       .withRegion("chat", lastConvo(combinedContent))
   }

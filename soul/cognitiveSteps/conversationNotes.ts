@@ -7,21 +7,20 @@ const conversationNotes = createCognitiveStep((existing: string) => {
       return {
         role: ChatMessageRoleEnum.System,
         content: indentNicely`
-          ## Existing notes
+          ## LAST SUMMARY
           ${existing}
 
           ## Description
-          Write an updated and clear paragraph describing the conversation so far.
+          Write a clear 2-4 sentence paragraph describing the conversation so far.
           Make sure to keep details that ${name} would want to remember.
 
           ## Rules
           * Keep descriptions as a paragraph
-          * Keep relevant information from before
+          * Start by trailing relevant information from the last summary
           * Use abbreviated language to keep the notes short
           * Be specific with user names and context
-          * Make sure to include important context that keeps the previous conversation flowing.
 
-          Please reply with ONLY raw, updated notes on the conversation:
+          Please reply with ONLY the raw summary:
         `,
       }
     },
