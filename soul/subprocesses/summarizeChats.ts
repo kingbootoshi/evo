@@ -41,7 +41,7 @@ const summarizesConversation: MentalProcess = async ({ workingMemory }) => {
 
   let memory = workingMemory.withOnlyRegions("core", "summary", "chat")
 
-  if (memory.memories.length > 13) {
+  if (memory.memories.length > 14) {
     log("updating conversation notes");
     [memory, ] = await internalMonologue(memory, { instructions: "What have I learned in this conversation.", verb: "noted" }, {model: "fast"})
 

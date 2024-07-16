@@ -6,8 +6,6 @@ import { ChatLog, UserMemory, GlobalUserInteractions, safeName } from "./util/us
 const core: MentalProcess = async ({ workingMemory }) => {
   const { speak, log } = useActions();
   const { set, fetch, search } = useSoulStore();
-  const scratchPadCount = useSoulMemory("scratchPadCount", 5)
-  const currentScratchPadNotes = useSoulMemory("currentScratchPadNotes", "...")
   const lastThought = useSoulMemory("lastThought", "...")
   const lastFeeling = useSoulMemory("lastFeeling", "...")
   const { invokingPerception, pendingPerceptions } = usePerceptions();
@@ -15,6 +13,8 @@ const core: MentalProcess = async ({ workingMemory }) => {
   const globalInteractions = useSoulMemory<GlobalUserInteractions>("globalUserInteractions", {});
   const taskListCount = useSoulMemory("taskListCount", 4)
   const taskList = useSoulMemory("taskList", [] as string[]);
+  const currentSummary = useSoulMemory("conversationSummary", "...")
+  const lastSummary = useSoulMemory("lastSummary", "...")
 
   // Increment interaction count for the current user
   if (userName !== 'null') {
@@ -54,7 +54,17 @@ const core: MentalProcess = async ({ workingMemory }) => {
   const top3UserResults = userSearched.slice(0, 3).map(formatSearchResult).join('\n');
 
   // Extract and format top 3 results for general memories
-  const top3GeneralResults = generalSearched.slice(0, 2).map(formatSearchResult).join('\n');
+  let top3GeneralResults = generalSearched.slice(0, 2).map(formatSearchResult);
+
+  // Remove duplicates from top3GeneralResults
+  top3GeneralResults = top3GeneralResults.filter(result => {
+    const resultContent = result.split(' - ')[1]; // Remove the timestamp
+    return !currentSummary.current.includes(resultContent) && 
+          !lastSummary.current.includes(resultContent);
+  });
+
+  // Join the filtered results or set to "N/A" if empty
+  const formattedGeneralResults = top3GeneralResults.length > 0 ? top3GeneralResults.join('\n') : "N/A";
 
   // Set current user memory to the user-specific vector result
   userMemory.current.longTermMemories = top3UserResults;
@@ -87,10 +97,16 @@ const core: MentalProcess = async ({ workingMemory }) => {
     content: indentNicely`
       ## INFO ABOUT ${userMemory.current.name}
       ${userInteractionSummary}
+    ` 
+  };
 
+  // Creating a memory variable for user information
+  const generalMemories = {
+    role: ChatMessageRoleEnum.Assistant,
+    content: indentNicely`
       ## RELEVANT GENERAL MEMORIES
-      ${top3GeneralResults}
-    `
+      ${formattedGeneralResults}
+    ` 
   };
 
   // Create a new memory for the tasklist
@@ -110,7 +126,7 @@ const core: MentalProcess = async ({ workingMemory }) => {
   };
 
   //Adding the unique user memories to the workingMemory
-  workingMemory = workingMemory.withRegion("userMemory", userMemories).withRegion("scratchpad", scratchpadMemory).withRegionalOrder("core", "userMemory", "summary", "chat", "scratchpad", "default");
+  workingMemory = workingMemory.withRegion("userMemory", userMemories).withRegion("scratchpad", scratchpadMemory).withRegion("generalMemories", generalMemories).withRegionalOrder("core", "userMemory", "generalMemories", "summary", "chat", "scratchpad", "default");
 
   //Pushing new user message to the unique chatlog history
   const newUserChat: ChatLog = {
@@ -146,7 +162,7 @@ const core: MentalProcess = async ({ workingMemory }) => {
   const [withDialog, stream] = await externalDialog(
     workingMemory,
     `Evo feels ${feels} and thinks: "${thought}". Based on this feeling and thought, Evo will now speak outloud`,
-    { model: "gpt-4o", temperature: 0.9 }
+    { model: "exp/llama-v3-70b-instruct", temperature: 0.9 }
   );
 
   speak(stream.replace(/^Evo said: "(.*)"$/, '$1').replace(/^"/, '').replace(/"$/, ''));

@@ -13,7 +13,7 @@ const defaultPerceptionProcessor: MemoryIntegrator = async ({ perception, workin
     content: soul.staticMemories.core,
     name: soul.name,
   }, {role: ChatMessageRoleEnum.Assistant, content: `## CURRENT TIME\n${currentDateTime}`})
-  .withRegionalOrder("core", "userMemory", "summary", "chat", "scratchpad", "default")
+  .withRegionalOrder("core", "userMemory", "generalMemories", "summary", "chat", "scratchpad", "default")
   
   const content = `${perception.name} ${perception.action}: "${perception.content}"`
   

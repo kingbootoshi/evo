@@ -21,17 +21,17 @@ const ataskList: MentalProcess = async ({ workingMemory }) => {
         const updatedTaskList = [];
         for (const task of taskList.current) {
           const [thinkTaskMemory, thinkCompletion] = await internalMonologue(memoriesWithChatlogs, {
-              instructions: `Based on the recent chat logs, did I finish this task? TASK: "${task}" IMPORTANT: EXPLICITLY THINK IN FIRST PERSON TO ANALYZE THE CURRENT SCENARIO. START YOUR SENTENCE BY STATING: "I think..." COME TO A DEFENITIVE CONCLUSION. DO NOT WONDER`,
+              instructions: `Based on the ALL the recent chat logs, did I finish this task? It's also ok to discard a task TASK: "${task}" IMPORTANT: EXPLICITLY THINK IN FIRST PERSON TO ANALYZE THE CURRENT SCENARIO. START YOUR SENTENCE BY STATING: "I think..." COME TO A DEFENITIVE CONCLUSION. DO NOT WONDER`,
               verb: "thinks"
           }, { model: "exp/llama-v3-70b-instruct" });
           log("Evo thinks about task completion...", thinkCompletion);
 
           const [decideMemory, taskCompleted] = await decision(thinkTaskMemory, {
               description: indentNicely`
-                  Based on your analysis of "I think...", have you completed this task? y/n
+                  Based on your analysis of "I think...", have you completed this task, or should discard this task? pick yes if EITHER apply.
               `,
               choices: ["yes", "no"]
-          }, { model: "fast" });
+          }, { model: "exp/llama-v3-70b-instruct" });
           log("Evo decides if task is completed...", taskCompleted);
 
           if (taskCompleted === "no") {
@@ -59,12 +59,12 @@ const ataskList: MentalProcess = async ({ workingMemory }) => {
         const [thinkMemory, thinkTask] = await internalMonologue(memoriesWithChatlogs, { 
           instructions: `Based on the recent chatlogs and the current task list, can you identify a NEW and UNIQUE task that hasn't been addressed yet. Consider various aspects of conversation and development. DO NOT suggest tasks similar to those already on the list! ${formattedTaskList} IMPORTANT: Think critically about what's missing from our interaction. START YOUR SENTENCE WITH: "I think..."`, 
           verb: "thinks" 
-        }, {model: "exp/llama-v3-70b-instruct"})
+        }, {model: "fast"})
         log("Evo thinks to add task...", thinkTask)
 
         const [taskDecide, taskDecision] = await decision(thinkMemory, {
           description: indentNicely`
-          Based on your analysis of "I think...", is this task truly new, unique, and valuable to add to the task list? Consider if it's different from existing tasks and if it will contribute to your growth or the conversation. y/n
+          Based on your analysis of "I think...", should we add a task to the list? y/n
           `,
           choices: ["yes", "no"]
         },
