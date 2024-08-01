@@ -1,21 +1,30 @@
-import { MentalProcess, useActions, ChatMessageRoleEnum, useSoulMemory, usePerceptions, indentNicely, useSoulStore} from "@opensouls/engine";
+import { MentalProcess, useActions, ChatMessageRoleEnum, useSoulMemory, usePerceptions, indentNicely, useSoulStore, useBlueprintStore} from "@opensouls/engine";
 import externalDialog from "./cognitiveSteps/externalDialog.js";
 import internalMonologue from "./cognitiveSteps/internalMonologue.js";
-import { ChatLog, UserMemory, GlobalUserInteractions, safeName } from "./util/userMemories.js";
+import { ChatLog, UserMemory, GlobalUserInteractions, safeName } from "./lib/utils/userMemories.js";
+import { Task } from "./lib/utils/userMemories.js";
+import { formatTaskList } from "./lib/utils/format.js";
+import { formatSearchResult, formatTaskListMetadata } from "./lib/utils/format.js";
 
 const core: MentalProcess = async ({ workingMemory }) => {
-  const { speak, log } = useActions();
+  const { speak, log, dispatch } = useActions();
   const { set, fetch, search } = useSoulStore();
+  const { search: blueprintSearch, set: blueprintSet} = useBlueprintStore();
   const lastThought = useSoulMemory("lastThought", "...")
   const lastFeeling = useSoulMemory("lastFeeling", "...")
   const { invokingPerception, pendingPerceptions } = usePerceptions();
   const userName = safeName(invokingPerception?.name ?? 'null');
   const globalInteractions = useSoulMemory<GlobalUserInteractions>("globalUserInteractions", {});
   const taskListCount = useSoulMemory("taskListCount", 4)
-  const taskList = useSoulMemory("taskList", [] as string[]);
+  const taskList = useSoulMemory<Task[]>("taskList", []);
   const currentSummary = useSoulMemory("conversationSummary", "...")
   const lastSummary = useSoulMemory("lastSummary", "...")
+  log("Incoming metadata...", invokingPerception)
+  log("Tasklist", taskList.current)
 
+  // Extract clientuserid from invokingPerception metadata
+  const clientUserId = invokingPerception?._metadata?.clientuserid;
+  
   // Increment interaction count for the current user
   if (userName !== 'null') {
     globalInteractions.current[userName] = (globalInteractions.current[userName] || 0) + 1;
@@ -48,12 +57,14 @@ const core: MentalProcess = async ({ workingMemory }) => {
 
   // General memory search
   let generalSearched = await search(invokingPerception?.content ?? '', { 
-    minSimilarity: 0.6
+    minSimilarity: 0.6,
+    filter: { type: { $ne: 'task' } }
   });
+  
   // Extract and format top 3 results for user-specific memories
   const top3UserResults = userSearched.slice(0, 3).map(formatSearchResult).join('\n');
 
-  // Extract and format top 3 results for general memories
+  // Extract and format top 2 results for general memories
   let top3GeneralResults = generalSearched.slice(0, 2).map(formatSearchResult);
 
   // Remove duplicates from top3GeneralResults
@@ -68,17 +79,6 @@ const core: MentalProcess = async ({ workingMemory }) => {
 
   // Set current user memory to the user-specific vector result
   userMemory.current.longTermMemories = top3UserResults;
-
-  // Helper function to format search results
-  function formatSearchResult(result: any) {
-    const timestamp = result.metadata?.timestamp as number;
-    if (timestamp) {
-      const date = new Date(timestamp);
-      const formattedDate = `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear().toString().substr(-2)}`;
-      return `${formattedDate} - ${result.content}`;
-    }
-    return `Unknown Date - ${result.content}`;
-  }
 
   //Formatting all user memories into one variable
   const userInteractionSummary = indentNicely`
@@ -109,24 +109,21 @@ const core: MentalProcess = async ({ workingMemory }) => {
     ` 
   };
 
+  const formattedTaskList = formatTaskList(taskList.current)
+
   // Create a new memory for the tasklist
   const scratchpadMemory = {
     role: ChatMessageRoleEnum.Assistant,
     content: indentNicely`
-      ## Evo's previous feeling:
-      ${lastFeeling.current}
-
-      ## Evo's previous thought:
-      ${lastThought.current}
-    
-      ## IMPORTANT: TASKLIST (Updates in ${5 - taskListCount.current} turns)\n
-      Make sure to complete these tasks!
-      ${taskList.current.map((task, index) => `Task ${index + 1} - ${task}`).join('\n')}
+      # IMPORTANT: EVO TASKS (Updates in ${4 - taskListCount.current} turns)
+     ** CRITICAL: Make sure to complete these tasks! **
+      
+      ${formattedTaskList}
     `
   };
 
   //Adding the unique user memories to the workingMemory
-  workingMemory = workingMemory.withRegion("userMemory", userMemories).withRegion("scratchpad", scratchpadMemory).withRegion("generalMemories", generalMemories).withRegionalOrder("core", "userMemory", "generalMemories", "summary", "chat", "scratchpad", "default");
+  workingMemory = workingMemory.withRegion("userMemory", userMemories).withRegion("scratchpad", scratchpadMemory).withRegion("generalMemories", generalMemories).withRegionalOrder("core", "scratchpad", "userMemory", "generalMemories", "summary", "chat", "default");
 
   //Pushing new user message to the unique chatlog history
   const newUserChat: ChatLog = {
@@ -137,41 +134,65 @@ const core: MentalProcess = async ({ workingMemory }) => {
 
   userMemory.current.recentChatLogs.push(newUserChat);
 
-  //Handle AI response to user message
+  // Handle AI response to user message
 
-  //FEELS LOGIC
-  const [withFeels, feels] = await internalMonologue(
-    workingMemory,
-    { instructions: "In only !!ONE!! word, describe intuitively how this response makes Evo feel. ", verb: "feels" },
-    { model: "exp/llama-v3-70b-instruct", temperature: 0.8 }
-  );
+    //FEELS LOGIC
+    const [withFeels, feels] = await internalMonologue(
+      workingMemory,
+      { instructions: "CRITICAL: ONLY GIVE ONE WORD, THE FEELING In only !!ONE!! word, describe intuitively how this response makes Evo feel", verb: "feels" },
+      { model: "exp/llama-v3p1-8b-instruct", temperature: 1 }
+    );
 
-  log("Evo feels...", feels)
-  lastFeeling.current = feels
+    log("Evo feels...", feels)
+    lastFeeling.current = feels
 
-  //THINK LOGIC
-  const [withThoughts, thought] = await internalMonologue(
-    workingMemory,
-    { instructions: `Evo feels ${feels}. Now, formulate a thought before speaking`, verb: "thinks" },
-    { model: "exp/llama-v3-70b-instruct", temperature: 0.9 }
-  );
+    //THINK LOGIC
+    const [withThoughts, thought] = await internalMonologue(
+      workingMemory,
+      { instructions: `Evo feels ${feels}. Now, Evo internally thinks`, verb: "thinks" },
+      { model: "exp/llama-v3p1-70b-instruct", temperature: .9}
+    );
 
-  log("Evo thinks...", thought);
-  lastThought.current = thought
+    log("Evo thinks...", thought);
+    lastThought.current = thought
 
   const [withDialog, stream] = await externalDialog(
     workingMemory,
-    `Evo feels ${feels} and thinks: "${thought}". Based on this feeling and thought, Evo will now speak outloud`,
-    { model: "exp/llama-v3-70b-instruct", temperature: 0.9 }
+    `Evo feels ${feels} & thought "${thought}". The user cannot see these thoughts. Now, speak out loud`,
+    { model: "exp/llama-v3p1-70b-instruct", temperature: .9 }
   );
 
-  speak(stream.replace(/^Evo said: "(.*)"$/, '$1').replace(/^"/, '').replace(/"$/, ''));
+  // Helper function to clean the AI response
+  const cleanAIResponse = (response: string): string => {
+    // Remove 'Evo said: ' prefix if present
+    let cleaned = response.replace(/^Evo said:\s*/, '');
+    // Remove surrounding quotes if present
+    cleaned = cleaned.replace(/^"(.+?)"?$/, '$1');
+    // Trim any remaining whitespace
+    return cleaned.trim();
+  };
 
-  //Pushing the AI's response to the unique chatlog history
+  const cleanedStream = cleanAIResponse(stream);
+
+  dispatch({
+    action: "says",
+    content: cleanedStream,
+    _metadata: {
+      ...(clientUserId && { clientuserid: clientUserId }), // Include clientuserid if it exists
+      feels: feels,
+      thoughts: thought,
+      tasklist: formatTaskListMetadata(taskList.current),
+      feelingsTowardsUser: userMemory.current.feelings.description,
+      notesOnUser: userMemory.current.notes,
+      interactionCount: userMemory.current.totalInteractions
+    },
+  });
+
+  // Pushing the AI's response to the unique chatlog history
   const newAIChat: ChatLog = {
     timestamp: Date.now(),
     speaker: "ai",
-    content: (stream).replace(/^Evo said: "(.*)"$/, '$1')
+    content: cleanedStream
   };
 
   userMemory.current.recentChatLogs.push(newAIChat);

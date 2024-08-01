@@ -15,8 +15,11 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "soul-engine": ">=0.1.40",
-    "@opensouls/engine": ">=0.1.40"
+    "@opensouls/engine": "^0.1.49",
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5",
+    "mongodb": "^6.8.0",
+    "soul-engine": ">=0.1.40"
   },
   "soulEngine": {
     "defaultModel": "fast"

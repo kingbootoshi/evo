@@ -19,8 +19,13 @@ const externalDialog = createCognitiveStep((instructions: string | { instruction
     
             ## Instructions
             ${instructionString}
+
+            ## Rules
+            * The response style MUST be in the form of Evo's voice!
+            * Only respond with what Evo SAYS
+            * Follow the instructions when creating what Evo says!
     
-            Please reply with what ${name} would like to say.
+            Reply with what ${name} says outloud
           `
       };
     },

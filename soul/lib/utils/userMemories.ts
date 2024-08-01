@@ -24,3 +24,9 @@ export interface GlobalUserInteractions {
 export function safeName(name?: string) {
     return (name || "").replace(/[^a-zA-Z0-9_-{}]/g, '_').slice(0, 62);
   }
+
+export interface Task {
+  description: string;
+  failureCount: number;
+  failureReason?: string;
+}

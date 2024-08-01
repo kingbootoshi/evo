@@ -1,5 +1,5 @@
 import { ChatMessageRoleEnum, MemoryIntegrator } from "@opensouls/engine"
-import { safeName } from "./util/userMemories.js";
+import { safeName } from "./lib/utils/userMemories.js";
 
 const currentDate = new Date();
 const formattedDate = `${currentDate.getMonth() + 1}/${currentDate.getDate()}/${currentDate.getFullYear().toString().slice(-2)}`;
@@ -13,7 +13,7 @@ const defaultPerceptionProcessor: MemoryIntegrator = async ({ perception, workin
     content: soul.staticMemories.core,
     name: soul.name,
   }, {role: ChatMessageRoleEnum.Assistant, content: `## CURRENT TIME\n${currentDateTime}`})
-  .withRegionalOrder("core", "userMemory", "generalMemories", "summary", "chat", "scratchpad", "default")
+  .withRegionalOrder("core", "scratchpad", "userMemory", "generalMemories", "summary", "chat", "default")
   
   const content = `${perception.name} ${perception.action}: "${perception.content}"`
   

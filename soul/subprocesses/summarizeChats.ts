@@ -1,4 +1,4 @@
-import { ChatMessageRoleEnum, MentalProcess, WorkingMemory, useSoulStore, indentNicely, stripEntityAndVerb, stripEntityAndVerbFromStream, useActions, useSoulMemory } from "@opensouls/engine";
+import { ChatMessageRoleEnum, MentalProcess, WorkingMemory, useSoulStore, indentNicely, useBlueprintStore, useActions, useSoulMemory } from "@opensouls/engine";
 import internalMonologue from "../cognitiveSteps/internalMonologue.js";
 import conversationNotes from "../cognitiveSteps/conversationNotes.js";
 
@@ -38,14 +38,15 @@ const summarizesConversation: MentalProcess = async ({ workingMemory }) => {
 
   const { log } = useActions()
   const { set, fetch, search } = useSoulStore()
+  const { search: blueprintSearch, set: blueprintSet} = useBlueprintStore();
 
   let memory = workingMemory.withOnlyRegions("core", "summary", "chat")
 
-  if (memory.memories.length > 14) {
+  if (memory.memories.length > 18) {
     log("updating conversation notes");
-    [memory, ] = await internalMonologue(memory, { instructions: "What have I learned in this conversation.", verb: "noted" }, {model: "fast"})
+    [memory, ] = await internalMonologue(memory, { instructions: "What have I learned in this conversation.", verb: "noted" }, {model: "gpt-4o-mini"})
 
-    const [, summary] = await conversationNotes(memory, currentSummary.current,  {model: "exp/llama-v3-70b-instruct"})
+    const [, summary] = await conversationNotes(memory, currentSummary.current,  {model: "gpt-4o-mini"})
 
     log("New chat summary!", summary)
 

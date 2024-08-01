@@ -1,5 +1,5 @@
-import { MentalProcess, useSoulMemory, useActions, ChatMessageRoleEnum, indentNicely, useSoulStore} from "@opensouls/engine";
-import { UserMemory, GlobalUserInteractions } from "../util/userMemories.js";
+import { MentalProcess, useSoulMemory, useActions, ChatMessageRoleEnum, indentNicely, useSoulStore, useBlueprintStore} from "@opensouls/engine";
+import { UserMemory, GlobalUserInteractions } from "../lib/utils/userMemories.js";
 import summarize from "../cognitiveSteps/summarize.js";
 import internalMonologue from "../cognitiveSteps/internalMonologue.js";
 import userNotes from "../cognitiveSteps/userNotes.js";
@@ -7,6 +7,7 @@ import userNotes from "../cognitiveSteps/userNotes.js";
 const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
   const { log } = useActions();
   const { set, fetch, search } = useSoulStore()
+  const { search: blueprintSearch, set: blueprintSet} = useBlueprintStore();
   const globalInteractions = useSoulMemory<GlobalUserInteractions>("globalUserInteractions", {});
 
   //setting workingMemory here to only contain the core Evo.md prompt
@@ -59,7 +60,7 @@ const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
         const [, longTermSummary] = await internalMonologue(
           memoryWithChatlog,
           { instructions: `Provide a 1-2 sentence snapshot of your current notes on ${username} based on the following information. Focus on key traits, interests, and the nature of your interactions. Be specific and factual. This is going in your long term memory.`, verb: "summarizes" },
-          { model: "fast" }
+          { model: "gpt-4o-mini" }
         );
       
         log("User long-term memory updated:", longTermSummary)
@@ -83,7 +84,7 @@ const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
       const [, summary] = await summarize(
           memoryWithChatlog,
           `Summarize the following chatlogs between ${username} & Evo in a couple concise sentences. Keep ALL important details`,
-          { model: "exp/llama-v3-70b-instruct" }
+          { model: "gpt-4o-mini" }
       );
 
       log(`Summarized chatlogs with ${username}: `, summary)
@@ -92,13 +93,13 @@ const processUserInteractions: MentalProcess = async ({ workingMemory }) => {
       const [, feelings] = await internalMonologue(
           memoryWithChatlog,
           { instructions: `In one sentence, how do you currently feel about ${username}? Why? !! Start your sentence with "I feel X towards ${username} because..."`, verb: "feels" },
-          { model: "exp/llama-v3-70b-instruct" }
+          { model: "gpt-4o-mini" }
       );
 
       log(`Evo's new feelings towards ${username}: `, feelings)
 
       //Evo taking notes on a user
-      const [, updatedNotes] = await userNotes(memoryWithChatlog, `${userMemory.current.notes}\n\nThe user is ${username}`, { model: "exp/llama-v3-70b-instruct" })
+      const [, updatedNotes] = await userNotes(memoryWithChatlog, `${userMemory.current.notes}\n\nThe user is ${username}`, { model: "gpt-4o-mini" })
       log(`Evo's new notes about ${username}`, updatedNotes)
 
       userMemory.current.lastConversationSummary = summary
